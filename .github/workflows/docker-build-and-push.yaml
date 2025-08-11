@@ -89,7 +89,7 @@ jobs:
 
       - name: Authenticate docker
         run: |
-          gcloud auth configure-docker --quiet asia-east2-docker.pkg.dev
+          gcloud auth configure-docker --quiet gcr.io
 
       -
         name: Docker meta
