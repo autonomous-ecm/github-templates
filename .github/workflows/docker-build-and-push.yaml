@@ -1,0 +1,117 @@
+name: Docker develop build
+
+on:
+  workflow_call:
+    inputs:
+      DOCKER_REGISTRY_HOST:
+        required: false
+        type: string
+        default: 'gcr.io'
+      DOCKER_IMAGE_PATH:
+        required: false
+        type: string
+        default: 'autonomous-ecm'
+      DOCKER_IMAGE_NAME:
+        required: true
+        type: string
+      DOCKERFILE_NAME:
+        required: true
+        type: string
+        default: 'Dockerfile'
+      DOCKER_CONTEXT:
+        required: false
+        type: string
+        default: '.'
+      DOCKER_BUILD_ENV:
+        required: false
+        type: string
+        default: ''
+      DOCKER_AUTOPUSH:
+        required: false
+        type: boolean
+        default: true
+      CONCURRENCY_GROUP:
+        required: false
+        type: string
+        default: 'docker_build_and_push'
+      RUNNER_TAG:
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+    secrets:
+      GCLOUD_DEV_SERVICE_ACCOUNT_JSON:
+        required: true
+      SECRET_DEPLOY_GITHUB_TOKEN:
+        required: false
+      SECRET_DEPLOY_GITHUB_USER:
+        required: false
+
+jobs:
+  build-and-push-to-gcr:
+    runs-on: ${{inputs.RUNNER_TAG}}
+    concurrency:
+      group: ${{inputs.CONCURRENCY_GROUP}}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get the tag name
+        id: get_tag_name
+        run: |
+          if [[ '${{inputs.DOCKER_BUILD_ENV}}' != '' ]]; then
+            short_sha=$(echo $GITHUB_SHA | head -c 7)
+            echo "BUILD_ENV=${{inputs.DOCKER_BUILD_ENV}}" >> $GITHUB_ENV
+            echo "IMAGE_TAG=${GITHUB_REF_NAME}-${short_sha}" >> $GITHUB_ENV
+            echo "CACHE_TO=" >> $GITHUB_ENV
+          elif [[ $GITHUB_REF_TYPE == 'branch' ]]; then
+            short_sha=$(echo $GITHUB_SHA | head -c 7)
+            echo "IMAGE_TAG=${GITHUB_REF_NAME}-${short_sha}" >> $GITHUB_ENV
+            echo "BUILD_ENV=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+            echo "CACHE_TO=type=gha,mode=max" >> $GITHUB_ENV
+          else
+            echo "IMAGE_TAG=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
+            echo "BUILD_ENV=production" >> $GITHUB_ENV
+            echo "CACHE_TO=" >> $GITHUB_ENV
+          fi
+
+      - name: Setup google auth
+        id: "auth"
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: ${{ secrets.GCLOUD_DEV_SERVICE_ACCOUNT_JSON }}
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v2'
+        with:
+          version: '>= 363.0.0'
+
+      - name: Setup docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate docker
+        run: |
+          gcloud auth configure-docker --quiet asia-east2-docker.pkg.dev
+
+      -
+        name: Docker meta
+        uses: docker/metadata-action@v5
+        id: dockerMeta
+        with:
+          images: ${{ inputs.DOCKER_IMAGE_PATH }}/${{ inputs.DOCKER_IMAGE_NAME }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.DOCKER_CONTEXT }}
+          file: ${{ inputs.DOCKERFILE_NAME }}
+          push: ${{ inputs.DOCKER_AUTOPUSH }}
+          labels: ${{ steps.dockerMeta.outputs.labels }}
+          tags: |
+            ${{ inputs.DOCKER_REGISTRY_HOST }}/${{ inputs.DOCKER_IMAGE_PATH }}/${{ inputs.DOCKER_IMAGE_NAME }}:latest
+            ${{ inputs.DOCKER_REGISTRY_HOST }}/${{ inputs.DOCKER_IMAGE_PATH }}/${{ inputs.DOCKER_IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: ${{ env.CACHE_TO }}
+          build-args: |
+            BUILD_ENV=${{ env.BUILD_ENV }}
+            BUILD_TAG=${{ env.IMAGE_TAG }}
+            SECRET_DEPLOY_GITHUB_TOKEN=${{ secrets.SECRET_DEPLOY_GITHUB_TOKEN }}
+            SECRET_DEPLOY_GITHUB_USER=${{ secrets.SECRET_DEPLOY_GITHUB_USER }}

@@ -1,0 +1,63 @@
+name: Docker build cache
+
+on:
+  workflow_call:
+    inputs:
+      DOCKER_REGISTRY_HOST:
+        required: false
+        type: string
+        default: 'gcr.io'
+      DOCKER_IMAGE_PATH:
+        required: false
+        type: string
+        default: 'autonomous-ecm'
+      DOCKER_IMAGE_NAME:
+        required: true
+        type: string
+      DOCKERFILE_NAME:
+        required: true
+        type: string
+        default: 'Dockerfile'
+      DOCKER_CONTEXT:
+        required: false
+        type: string
+        default: '.'
+
+    secrets:
+      SECRET_DEPLOY_GITHUB_TOKEN:
+        required: false
+      SECRET_DEPLOY_GITHUB_USER:
+        required: false
+
+jobs:
+  build-cache:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: docker_build_cache_${{vars.GITHUB_REF_NAME}}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get the tag name
+        id: get_tag_name
+        run: |
+          short_sha=$(echo $GITHUB_SHA | head -c 7)
+          echo "IMAGE_TAG=${GITHUB_REF_NAME}-${short_sha}" >> $GITHUB_ENV
+          echo "BUILD_ENV=production" >> $GITHUB_ENV
+
+      - name: Setup docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and cache
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.DOCKER_CONTEXT }}
+          file: ${{ inputs.DOCKERFILE_NAME }}
+          push: false
+          tags: |
+            ${{ inputs.DOCKER_REGISTRY_HOST }}/${{ inputs.DOCKER_IMAGE_PATH }}/${{ inputs.DOCKER_IMAGE_NAME }}:cache-${{ env.IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_ENV=${{ env.BUILD_ENV }}
+            SECRET_DEPLOY_GITHUB_TOKEN=${{ secrets.SECRET_DEPLOY_GITHUB_TOKEN }}
+            SECRET_DEPLOY_GITHUB_USER=${{ secrets.SECRET_DEPLOY_GITHUB_USER }}
