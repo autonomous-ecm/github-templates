@@ -117,4 +117,4 @@ jobs:
             BUILD_TAG=${{ env.IMAGE_TAG }}
             SECRET_DEPLOY_GITHUB_TOKEN=${{ secrets.SECRET_DEPLOY_GITHUB_TOKEN }}
             SECRET_DEPLOY_GITHUB_USER=${{ secrets.SECRET_DEPLOY_GITHUB_USER }}
-            GITLAB_TOKEN={{ secrets.GITLAB_TOKEN }}
+            GITLAB_TOKEN=${{ secrets.GITLAB_TOKEN }}
